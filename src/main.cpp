@@ -90,7 +90,6 @@ void loop() {
   
   if (state != States::IDLE && adcValue < IDLE_THRESHOLD) {
     event_start = cur_time;
-    state = States::IDLE;
     // wait for WiFi connection
     if (WiFiMulti.run() == WL_CONNECTED) {
       WiFiClient client;
@@ -126,5 +125,6 @@ void loop() {
         Serial.printf("[HTTP} Unable to connect\n");
       }
     }
+    state = States::IDLE;
   }
 }
