@@ -29,58 +29,68 @@ enum class States {
 constexpr int IDLE_THRESHOLD = 570;
 constexpr int EXIT_THRESHOLD = 650;
 
-States state = States::IDLE;
+// Max noise for the sensor when stationary
+constexpr int MIN_MOVE = 20;
 
-// #define EXT_ISR_PIN 2 ///< Interrupt pin connected to AS1115
-
-ESP8266WiFiMulti WiFiMulti;
-
-// volatile bool interrupted = false;
-// void IRAM_ATTR interrupt() { interrupted = true; }
-
-void setup() {
-
-  
-  // pinMode(EXT_ISR_PIN, INPUT);
-  // attachInterrupt(digitalPinToInterrupt(EXT_ISR_PIN), interrupt, RISING);
-
-  Serial.begin(115200);
-  // Serial.setDebugOutput(true);
-
-  Serial.println();
-  Serial.println();
-  Serial.println();
-
-  for (uint8_t t = 4; t > 0; t--) {
-    Serial.printf("[SETUP] WAIT %d...\n", t);
-    Serial.flush();
-    delay(1000);
-  }
-
-  WiFi.mode(WIFI_STA);
-  WiFiMulti.addAP(SSID, PASSWORD);
-}
+// Time with a trigger value to declare the door is stuck open
+constexpr int STICK_TIME = 1000;
+// Ignore triggers for this duration after an initial trigger. This is to avoid triggering on the swinging of the door
+constexpr int SWING_TIME = 10000;
 
 const char* ON_JSON = "{\"seg\":[{\"id\":2,\"bri\":255}]}";
 const char* OFF_JSON = "{\"seg\":[{\"id\":2,\"bri\":0}]}";
 
 long unsigned int next_print = 0;
+long unsigned int last_move = 0;
+long unsigned int event_start = 0;
+int last_adc = 0;
+
+States state = States::IDLE;
+
+ESP8266WiFiMulti WiFiMulti;
+
+void setup() {
+
+  Serial.begin(115200);
+
+  WiFi.mode(WIFI_STA);
+  WiFiMulti.addAP(SSID, PASSWORD);
+}
 
 void loop() {
   int adcValue = analogRead(A0); /* Read the Analog Input value */
+  
+  unsigned long cur_time = millis();
 
-  if (millis() > next_print) {
+  if (cur_time > next_print) {
     Serial.println(adcValue);
-    next_print = millis() + 500;
+    next_print = cur_time + 500;
   }
 
-  if (adcValue > EXIT_THRESHOLD && state != States::EXIT) {
-    state = States::EXIT;
-    Serial.print("Exit\n");
-  } else if (adcValue > IDLE_THRESHOLD && state == States::IDLE) {
-    state = States::ENTER;
-    Serial.print("Enter?\n");
-  } else if (state != States::IDLE && adcValue < IDLE_THRESHOLD) {
+  // Avoid repeat triggers if the door sticks mid swing
+  bool stuck = false;
+  if (adcValue > IDLE_THRESHOLD && abs(adcValue-last_adc) < MIN_MOVE) {
+    if (cur_time - last_move > STICK_TIME) {
+      stuck = true;
+    }
+  } else {
+    last_move = cur_time;
+  }
+
+  // Only trigger an event if the door isn't stuck, and this is the first trigger in an event.
+  if (!stuck && cur_time - event_start > SWING_TIME) {
+    if (adcValue > EXIT_THRESHOLD && state != States::EXIT) {
+      state = States::EXIT;
+      Serial.print("Exit\n");
+    } else if (adcValue > IDLE_THRESHOLD && state == States::IDLE) {
+      state = States::ENTER;
+      Serial.print("Enter?\n");
+    }
+  }  
+  
+  if (state != States::IDLE && adcValue < IDLE_THRESHOLD) {
+    event_start = cur_time;
+    state = States::IDLE;
     // wait for WiFi connection
     if (WiFiMulti.run() == WL_CONNECTED) {
       WiFiClient client;
@@ -116,6 +126,5 @@ void loop() {
         Serial.printf("[HTTP} Unable to connect\n");
       }
     }
-    state = States::IDLE;
   }
 }
