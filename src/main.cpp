@@ -1,16 +1,7 @@
-/**
-   BasicHTTPClient.ino
-    Created on: 24.05.2015
-*/
-
 #include <Arduino.h>
-
-#include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
-
 #include <ESP8266HTTPClient.h>
-
-#include <WiFiClient.h>
+#include <PubSubClient.h>
 
 #include "secrets.h"
 
@@ -47,10 +38,36 @@ int last_adc = 0;
 
 States state = States::IDLE;
 
+const char* mqtt_server = "192.168.1.110";
+const char* topic_sensor = "cat_door/sensor";
+const char* topic_event = "cat_door/event";
+
 ESP8266WiFiMulti WiFiMulti;
 
-void setup() {
+struct LogMessage
+{
+  uint32_t time;
+  int32_t adc;
+};
 
+#define NUM_MESSAGES	(64)
+LogMessage log_msgs[NUM_MESSAGES];
+uint8_t num_msgs = 0;
+
+void reconnect(PubSubClient& client) {
+  if (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("catdoor")) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.println(client.state());
+    }
+  }
+}
+
+void setup() {
   Serial.begin(115200);
 
   WiFi.mode(WIFI_STA);
@@ -62,10 +79,6 @@ void loop() {
   
   unsigned long cur_time = millis();
 
-  if (cur_time > next_print) {
-    Serial.println(adcValue);
-    next_print = cur_time + 500;
-  }
 
   // Avoid repeat triggers if the door sticks mid swing
   bool stuck = false;
@@ -75,6 +88,20 @@ void loop() {
     }
   } else {
     last_move = cur_time;
+  }
+
+  
+  if (cur_time > next_print) {
+    Serial.printf("%d %d %d\n",adcValue, stuck, (int)state);
+    next_print = cur_time + 500;
+  }
+
+  if (abs(adcValue-last_adc) > MIN_MOVE) {
+    if (num_msgs < NUM_MESSAGES) {
+      Serial.printf("%d %d %d\n",adcValue,last_adc,num_msgs);
+      log_msgs[num_msgs++] = {cur_time, adcValue};
+    }
+    last_adc = adcValue;
   }
 
   // Only trigger an event if the door isn't stuck, and this is the first trigger in an event.
@@ -124,6 +151,22 @@ void loop() {
       } else {
         Serial.printf("[HTTP} Unable to connect\n");
       }
+
+      PubSubClient mqtt_client(client);
+      mqtt_client.setServer(mqtt_server, 1883);
+      if (!mqtt_client.connected()) {
+        reconnect(mqtt_client);
+      }
+      if (mqtt_client.connected()) {
+        mqtt_client.publish(topic_sensor, (uint8_t*)log_msgs, num_msgs * sizeof(LogMessage));
+        const char * state_msg = (state == States::ENTER) ? "ENTER" : "EXIT";
+        mqtt_client.publish(topic_event, state_msg, strlen(state_msg));
+        mqtt_client.disconnect();
+      }
+      num_msgs = 0;
+      WiFi.disconnect();
+    } else {
+      Serial.printf("Wifi Down\n");
     }
     state = States::IDLE;
   }
