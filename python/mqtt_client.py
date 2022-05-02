@@ -24,7 +24,7 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     timestamp = int(time.time())
     if msg.topic == "cat_door/event":
-        event_fd.write(f'{timestamp},{msg.payload}\n')
+        event_fd.write(f'{timestamp},{msg.payload.decode("ascii")}\n')
         event_fd.flush()
     elif msg.topic == "cat_door/sensor":
         while len(msg.payload) > sensor_msg_size:
