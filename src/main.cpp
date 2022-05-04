@@ -53,7 +53,7 @@ struct LogMessage
   int32_t adc;
 };
 
-#define NUM_MESSAGES	(64)
+#define NUM_MESSAGES	(MQTT_MAX_PACKET_SIZE / sizeof(LogMessage))
 LogMessage log_msgs[NUM_MESSAGES];
 uint8_t num_msgs = 0;
 
