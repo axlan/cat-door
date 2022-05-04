@@ -23,10 +23,13 @@ def on_connect(client, userdata, flags, rc):
 # The callback for when a PUBLISH message is received from the server.
 def on_message(client, userdata, msg):
     timestamp = int(time.time())
+    print(datetime.now(), msg.topic)
     if msg.topic == "cat_door/event":
+        print(f'\t{msg.payload.decode("ascii")}')
         event_fd.write(f'{timestamp},{msg.payload.decode("ascii")}\n')
         event_fd.flush()
     elif msg.topic == "cat_door/sensor":
+        print(f'\tnum_measurements: {len(msg.payload) / sensor_msg_size}')
         while len(msg.payload) > sensor_msg_size:
             uptime, val = struct.unpack_from(sensor_struct, msg.payload[:sensor_msg_size])
             msg.payload = msg.payload[sensor_msg_size:]

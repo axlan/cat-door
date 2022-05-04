@@ -17,6 +17,8 @@ enum class States {
   ENTER
 };
 
+// #define DEBUG_PRINT 1
+
 constexpr int IDLE_THRESHOLD = 570;
 constexpr int EXIT_THRESHOLD = 650;
 
@@ -35,6 +37,7 @@ long unsigned int next_print = 0;
 long unsigned int last_move = 0;
 long unsigned int event_start = 0;
 int last_adc = 0;
+bool should_send = false;
 
 States state = States::IDLE;
 
@@ -90,11 +93,12 @@ void loop() {
     last_move = cur_time;
   }
 
-  
+#if DEBUG_PRINT
   if (cur_time > next_print) {
-    Serial.printf("%d %d %d\n",adcValue, stuck, (int)state);
+    Serial.printf("%d %d %d %d %lu %lu\n",adcValue, stuck, (int)state, should_send, cur_time, event_start);
     next_print = cur_time + 500;
   }
+#endif
 
   if (abs(adcValue-last_adc) > MIN_MOVE) {
     if (num_msgs < NUM_MESSAGES) {
@@ -115,8 +119,13 @@ void loop() {
     }
   }  
   
-  if (state != States::IDLE && adcValue < IDLE_THRESHOLD) {
+  if (!should_send && state != States::IDLE && adcValue < IDLE_THRESHOLD) {
     event_start = cur_time;
+    should_send = true;
+  }
+
+  if (should_send && (cur_time - event_start > SWING_TIME)) {
+    should_send = false;
     // wait for WiFi connection
     if (WiFiMulti.run() == WL_CONNECTED) {
       WiFiClient client;
